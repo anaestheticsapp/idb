@@ -1,0 +1,12 @@
+# Compiler outputs #
+*.exe
+
+# Env
+*.env
+
+# Directories #
+env/
+node_modules/
+
+# Packages #
+*.gz

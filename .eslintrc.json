@@ -1,0 +1,23 @@
+{
+    "extends": [
+        "plugin:prettier/recommended"
+    ],
+    "plugins": ["prettier"],
+    "parser": "esprima",
+    "parserOptions": {
+        "sourceType": "module"
+    },
+    "env": {
+        "es6": true,
+        "browser": true
+    },
+    "rules": {
+        "prettier/prettier": [
+            "error", {
+                "endOfLine": "auto",
+                "singleQuote": true,
+                "printWidth": 120
+            }
+        ]
+    }
+}

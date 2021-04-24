@@ -1,0 +1,38 @@
+{
+  "name": "@simonbluhm/idb",
+  "version": "1.0.0",
+  "description": "small idb library",
+  "module": "dist/idb.js",
+  "type": "module",
+  "scripts": {
+    "test": "mocha",
+    "watch": "rollup --config --environment BUILD:development --watch",
+    "build": "rollup --c --environment BUILD:production",
+    "publish:patch": "npm run build && npm version patch && npm publish --access public",
+    "publish:minor": "npm run build && npm version minor && npm publish --access public",
+    "publish:major": "npm run build && npm version major && npm publish --access public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anaestheticsapp/idb.git"
+  },
+  "keywords": [
+    "idb"
+  ],
+  "author": "Simon Bluhm",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/anaestheticsapp/idb/issues"
+  },
+  "homepage": "https://github.com/anaestheticsapp/idb#readme",
+  "devDependencies": {
+    "chai": "^4.3.4",
+    "eslint": "^7.24.0",
+    "eslint-config-prettier": "^8.2.0",
+    "eslint-plugin-prettier": "^3.3.1",
+    "mocha": "^8.3.2",
+    "prettier": "^2.2.1",
+    "rimraf": "^3.0.2",
+    "rollup": "^2.45.2"
+  }
+}
