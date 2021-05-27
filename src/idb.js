@@ -56,6 +56,7 @@ export default class IndexedDB {
     if (!this.db) {
       this._openDatabase();
       this.db = await this._database;
+      this._openDatabase.once = null;
     }
     return this.db; // for old version
   }
