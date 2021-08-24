@@ -212,7 +212,7 @@ export default class IndexedDB {
 
       const store = transaction.objectStore(storeName);
       const index = indexName ? store.index(indexName) : null;
-      const keyRange = lower && upper ? IDBKeyRange.bound(lower, upper) : IDBKeyRange.only(lower);
+      const keyRange = lower && upper ? IDBKeyRange.bound(lower, upper) : lower ? IDBKeyRange.only(lower) : null;
 
       let results;
       const request = lower ? index.count(keyRange) : index ? index.count() : store.count();
