@@ -1,6 +1,6 @@
 {
   "name": "@simonbluhm/idb",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "small idb library",
   "module": "dist/idb.js",
   "type": "module",
