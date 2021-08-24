@@ -1,3 +1,7 @@
+// https://bugs.webkit.org/show_bug.cgi?id=226547#c26
+// workaround for macOS Big Sur 11.4 and iOS 14.6
+indexedDB.deleteDatabase('dummy-database');
+
 export default class IndexedDB {
   constructor(name, version, schema, beacon) {
     this._DB_NAME = name;
@@ -207,7 +211,7 @@ export default class IndexedDB {
       transaction.onerror = () => reject(transaction.error);
 
       const store = transaction.objectStore(storeName);
-      const index = store.index(indexName);
+      const index = indexName ? store.index(indexName) : null;
       const keyRange = lower && upper ? IDBKeyRange.bound(lower, upper) : IDBKeyRange.only(lower);
 
       let results;
