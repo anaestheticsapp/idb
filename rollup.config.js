@@ -1,4 +1,5 @@
 import rimraf from 'rimraf';
+import nodeResolve from '@rollup/plugin-node-resolve';
 import typescript from '@rollup/plugin-typescript';
 import copyPlugin from './lib/copy-plugin.js';
 
@@ -25,7 +26,7 @@ function production(name = 'main') {
 
 function test(name = 'main') {
   return {
-    input: 'src/idb.test.ts',
+    input: 'src/idb.test2.ts',
     output: {
       dir: 'dist/',
       format: 'esm',
@@ -33,6 +34,7 @@ function test(name = 'main') {
       sourcemap: true,
     },
     plugins: [
+      nodeResolve(),
       copyPlugin([{ from: './test/', to: './dist/' }]),
       typescript(),
       serve({

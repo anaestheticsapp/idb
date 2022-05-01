@@ -1,6 +1,19 @@
 import idbReady from 'safari-14-idb-fix';
 import { createPromise } from 'wait';
 
+function safariFix() {
+  const isSafari =
+    //@ts-ignore
+    !navigator.userAgentData &&
+    /Safari\//.test(navigator.userAgent) &&
+    !/Chrom(e|ium)\//.test(navigator.userAgent);
+
+  // No point putting other browsers or older versions of Safari through this mess.
+  if (!isSafari || !indexedDB.databases) return;
+
+  indexedDB.deleteDatabase('dummy-database');
+}
+
 const category = 'idb';
 
 const READONLY: Set<Method> = new Set(['get', 'getAll', 'getBound', 'getLastEntry', 'count']);
@@ -54,8 +67,6 @@ export default class IndexedDB {
   private _openIndexedDB(): Promise<IDBDatabase | null> {
     return new Promise(async (resolve, _) => {
       try {
-        await idbReady();
-
         let request = indexedDB.open(this._name, this._version);
         request.onsuccess = () => {
           const { name, version } = request.result;
@@ -77,12 +88,6 @@ export default class IndexedDB {
         request.onupgradeneeded = (e) => {
           const db = request.result;
           const upgrade = e.target as IDBOpenDBRequest;
-
-          if (e.oldVersion === 0) {
-            this._beacon(`idb-open/install`, { category });
-          } else {
-            this._beacon(`idb-open/upgrade`, { category, label: 'old-version', value: e.oldVersion });
-          }
 
           this._schema(e.oldVersion, db, upgrade.transaction);
         };
@@ -108,15 +113,12 @@ export default class IndexedDB {
     return this._db;
   }
   public close(): void {
-    if (this._db === null) {
-      return;
-    } else {
-      const { name } = this._db;
+    if (this._db) {
+      console.log('idb/closing-database', this._db.name);
       this._db.close();
       this._db = null;
-      console.log('idb-close/database', name);
-      return;
     }
+    return;
   }
 
   private _handleTransactionError(e: Event) {

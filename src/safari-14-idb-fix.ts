@@ -6,7 +6,7 @@
  * The only solution is to keep nudging it until it's awake.
  */
  export default function idbReady(): Promise<void> {
-   const isSafari =
+  const isSafari =
     //@ts-ignore
     !navigator.userAgentData &&
     /Safari\//.test(navigator.userAgent) &&

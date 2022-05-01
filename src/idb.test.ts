@@ -1,6 +1,8 @@
 import IndexedDB from './idb.js';
 
-const beacon = (action, opts = { label: '', value: '' }) => console.warn(action, opts.label || '', opts.value || '');
+const category = 'idb';
+
+const beacon = (action, opts: any = {}) => console.warn(action, opts.label || '', opts.value || '');
 const delay = (ms: number) => new Promise((res) => setTimeout(() => res(null), ms));
 
 const NAME = 'db-test';
@@ -31,8 +33,13 @@ function index(tx: IDBTransaction, storeName: string, index: string) {
  * @param tx required when store already exists (ie adding an index to an existing store)
  */
 const SCHEMA = (oldVersion: number, db: IDBDatabase, tx: IDBTransaction): void => {
+  if (oldVersion > 0) {
+    beacon(`idb-open/upgrade`, { category, label: 'old-version', value: oldVersion });
+  }
+
   switch (oldVersion) {
     case 0: {
+      beacon(`idb-open/install`, { category });
       create(db, 'store1');
       create(db, 'store2', ['index1', 'index2']);
       create(db, 'store3', [], { keyPath: 'id', autoIncrement: true });
