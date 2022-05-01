@@ -1,4 +1,3 @@
-import idbReady from 'safari-14-idb-fix';
 import { createPromise } from 'wait';
 
 function safariFix() {
@@ -13,6 +12,7 @@ function safariFix() {
 
   indexedDB.deleteDatabase('dummy-database');
 }
+safariFix();
 
 const category = 'idb';
 
@@ -99,10 +99,7 @@ export default class IndexedDB {
 
   public async open(): Promise<IDBDatabase> {
     if (!this._db) {
-      if (this._inProgress) {
-        console.warn('open database in progress');
-        return this._inProgress;
-      }
+      if (this._inProgress) return this._inProgress;
       this._inProgress = createPromise();
 
       this._db = await this._openIndexedDB();
