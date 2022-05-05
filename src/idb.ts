@@ -26,9 +26,6 @@ type Beacon = (action: string, opts?: unknown) => void;
 interface TransactionOptions {
   storeName: string;
   indexName?: string;
-  state?: { result: any };
-  resolve: (value: any) => void;
-  reject: (value: any) => void;
 }
 
 export default class IndexedDB {
@@ -118,34 +115,41 @@ export default class IndexedDB {
     return;
   }
 
-  private _handleTransactionError(e: Event) {
-    const request = e.target as IDBRequest;
-    const { name, message } = request.error;
-    console.warn('_handleTransactionError', name, message);
-    return message;
-  }
-  private async _transaction(method: Method, options: TransactionOptions) {
-    const {
-      storeName,
-      indexName,
-      state = { result: 'success' },
-      resolve,
-      reject
-    } = options;
-
-    const mode = READONLY.has(method) ? 'readonly' : 'readwrite';
+  private async _promisifyIDBTransaction(method: Method, options: TransactionOptions): Promise<any> {
+    const { storeName, indexName } = options;
 
     const db = await this.open();
-    const tx = db.transaction(storeName, mode);
-    tx.oncomplete = () => resolve(state.result);
-    tx.onerror = (e) => reject(this._handleTransactionError(e));
 
+    const tx = db.transaction(storeName, READONLY.has(method) ? 'readonly' : 'readwrite');
     const store = tx.objectStore(storeName);
     const index = indexName ? store.index(indexName) : null;
-
-    return index || store;
+    return {
+      target: index || store,
+      done: new Promise((resolve, reject) => {
+        tx.oncomplete = () => resolve('done');
+        tx.onerror = (e) => {
+          const request = e.target as IDBRequest | IDBTransaction;
+          reject(request.error.message);
+        };
+      }),
+    }
   }
-
+  private _promisifyIDBCursorRequest(req: IDBRequest): Promise<any> {
+    return new Promise(async (resolve, reject) => {
+      req.onsuccess = async () => {
+        let cursor = req.result;
+        if (!!cursor === false) return resolve(undefined);
+        else resolve(cursor);
+      };
+      req.onerror = () => reject(req.error);
+    });
+  }
+  private _promisifyIDBRequest(req: IDBRequest): Promise<any> {
+    return new Promise((resolve, reject) => {
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
   /**
    * Add or replace items
    * @param values - must contain keyPath if not auto-incrementing
@@ -156,13 +160,9 @@ export default class IndexedDB {
       try {
         if (Array.isArray(values) === false) throw new Error('Values must be an array.');
 
-        const tx = <IDBObjectStore>await this._transaction('add', {
-          storeName,
-          resolve,
-          reject,
-        });
+        const { target, done }  = await this._promisifyIDBTransaction('add', { storeName });
 
-        const { keyPath, autoIncrement } = tx;
+        const { keyPath, autoIncrement } = target;
 
         for (let value of values) {
           if (autoIncrement === false && value[keyPath as string] === undefined) {
@@ -172,8 +172,11 @@ export default class IndexedDB {
           }
 
           // not used ```add``` as put allows overwriting
-          tx.put(value);
+          target.put(value);
         }
+
+        await done;
+        resolve('success');
       } catch (err) {
         this._beacon(`idb-add/${storeName}`, { label: err.message });
         reject(err);
@@ -189,13 +192,9 @@ export default class IndexedDB {
   set(value: any, storeName: string) {
     return new Promise(async (resolve, reject) => {
       try {
-        const tx = <IDBObjectStore>await this._transaction('set', {
-          storeName,
-          resolve,
-          reject,
-        });
+        const { target, done }  = await this._promisifyIDBTransaction('set', { storeName });
 
-        const { keyPath } = tx;
+        const { keyPath } = target;
         const key = value[keyPath as string];
 
         if (!key) {
@@ -204,7 +203,7 @@ export default class IndexedDB {
 
         let found = false;
 
-        const cursorRequest = tx.openCursor(IDBKeyRange.only(key));
+        const cursorRequest = target.openCursor(IDBKeyRange.only(key));
         cursorRequest.onsuccess = () => {
           const cursor = cursorRequest.result;
           if (!!cursor === false) {
@@ -216,6 +215,9 @@ export default class IndexedDB {
           cursor.continue();
         };
         cursorRequest.onerror = () => reject(cursorRequest.error);
+
+        await done;
+        resolve('success');
       } catch (err) {
         this._beacon(`idb-set/${storeName}`, { label: err.message });
         reject(err);
@@ -225,40 +227,37 @@ export default class IndexedDB {
 
   get(key: string, storeName: string, indexName = undefined): Promise<any> {
     return new Promise(async (resolve, reject) => {
-      const state = { result: null };
+      try {
+        let result = null;
 
-      const tx = await this._transaction('get', {
-        storeName,
-        indexName,
-        state,
-        resolve,
-        reject,
-      });
+        const { target, done }  = await this._promisifyIDBTransaction('get', { storeName, indexName });
 
-      const cursorRequest = tx.openCursor(IDBKeyRange.only(key));
-      cursorRequest.onsuccess = () => {
-        let cursor = cursorRequest.result;
-        if (!!cursor === false) return;
-        state.result = cursor.value;
-        cursor.continue();
-      };
-      cursorRequest.onerror = () => reject(cursorRequest.error);
+        const query = target.openCursor(IDBKeyRange.only(key));
+        let cursor: any = true;
+        while (!!cursor) {
+          cursor = await this._promisifyIDBCursorRequest(query);
+          if (cursor) {
+            result = cursor.value;
+            cursor.continue();
+          }
+        }
+        await done;
+        resolve(result);
+      } catch (err) {
+        reject(err);
+      }
     });
   }
 
   getAll(storeName: string, indexName = null, key = null, limit = null) {
     return new Promise(async (resolve, reject) => {
       try {
-        const tx = await this._transaction('getAll', {
-          storeName,
-          indexName,
-          resolve,
-          reject
-        });
+        const { target, done }  = await this._promisifyIDBTransaction('getAll', { storeName, indexName });
 
-        const request = tx.getAll(key, limit);
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
+        const query = target.getAll(key, limit);
+        const result = await this._promisifyIDBRequest(query);
+        await done;
+        resolve(result);
       } catch (err) {
         this._beacon(`idb-getAll/${storeName}`, { label: err.message });
         reject(err);
@@ -269,26 +268,26 @@ export default class IndexedDB {
   getBound(storeName: string, indexName: string, lower: string, upper = null) {
     return new Promise(async (resolve, reject) => {
       try {
-        const state = { result: [] };
-        const tx = await this._transaction('getBound', {
-          storeName,
-          indexName,
-          state,
-          resolve,
-          reject
-        });
+        let result = [];
+        const { target, done }  = await this._promisifyIDBTransaction('getBound', { storeName, indexName });
 
         const keyRange = lower && upper
           ? IDBKeyRange.bound(lower, upper)
           : IDBKeyRange.only(lower);
-        const cursorRequest = tx.openCursor(keyRange, 'prev');
-        cursorRequest.onsuccess = () => {
-          let cursor = cursorRequest.result;
-          if (!!cursor == false) return;
-          state.result.push(cursor.value);
-          cursor.continue();
-        };
-        cursorRequest.onerror = () => reject(cursorRequest.error);
+
+        const query = target.openCursor(keyRange, 'prev');
+
+        let cursor: any = true;
+        while (!!cursor) {
+          cursor = await this._promisifyIDBCursorRequest(query);
+          if (cursor) {
+            result.push(cursor.value);
+            cursor.continue();
+          }
+        }
+
+        await done;
+        resolve(result);
       } catch (err) {
         this._beacon(`idb-getBound/${storeName}`, { label: err.message });
         reject(err);
@@ -299,23 +298,21 @@ export default class IndexedDB {
   getLastEntry(storeName: string, indexName = null, direction: IDBCursorDirection) {
     return new Promise(async (resolve, reject) => {
       try {
-        const state = { result: null };
-        const tx = await this._transaction('getLastEntry', {
-          storeName,
-          indexName,
-          state,
-          resolve,
-          reject
-        });
+        let result = null;
+        const { target, done }  = await this._promisifyIDBTransaction('getLastEntry', { storeName, indexName });
 
-        const cursorRequest = tx.openCursor(null, direction);
+        const query = target.openCursor(null, direction);
 
-        cursorRequest.onsuccess = () => {
-          const cursor = cursorRequest.result;
-          if (!!cursor === false) return;
-          state.result = cursor.value;
-        };
-        cursorRequest.onerror = () => reject(cursorRequest.error);
+        let cursor: any = true;
+        while (!!cursor) {
+          cursor = await this._promisifyIDBCursorRequest(query);
+          if (cursor) {
+            result = cursor.value;
+            cursor.continue();
+          }
+        }
+        await done;
+        resolve(result);
       } catch (err) {
         this._beacon(`idb-getLastEntry/${storeName}`, { label: err.message });
         reject(err);
@@ -326,15 +323,13 @@ export default class IndexedDB {
   delete(storeName: string, key = null) {
     return new Promise(async (resolve, reject) => {
       try {
-        const tx = <IDBObjectStore>await this._transaction('delete', {
-          storeName,
-          resolve,
-          reject
-        });
+        const { target, done }  = await this._promisifyIDBTransaction('delete', { storeName });
 
-        const request = key ? tx.delete(key) : tx.clear();
-        request.onsuccess = () => resolve('success');
-        request.onerror = () => reject(request.error);
+        const query = key ? target.delete(key) : target.clear();
+        await this._promisifyIDBRequest(query);
+
+        await done;
+        resolve('success');
       } catch (err) {
         this._beacon(`idb-delete/${storeName}`, { label: err.message });
         reject(err);
@@ -345,12 +340,7 @@ export default class IndexedDB {
   count(storeName: string, indexName = null, lower = null, upper = null) {
     return new Promise(async (resolve, reject) => {
       try {
-        const tx = await this._transaction('count', {
-          storeName,
-          indexName,
-          resolve,
-          reject
-        });
+        const { target, done }  = await this._promisifyIDBTransaction('count', { storeName, indexName });
 
         const keyRange = lower && upper
           ? IDBKeyRange.bound(lower, upper)
@@ -358,13 +348,14 @@ export default class IndexedDB {
           ? IDBKeyRange.only(lower)
           : null;
 
-        const request = indexName && keyRange
-          ? tx.count(keyRange)
-          : tx.count();
+        const query = indexName && keyRange
+          ? target.count(keyRange)
+          : target.count();
 
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
+        const result = await this._promisifyIDBRequest(query);
 
+        await done;
+        resolve(result);
       } catch (err) {
         this._beacon(`idb-count/${storeName}`, { label: err.message });
         reject(err);

@@ -63,7 +63,7 @@ export class IndexedDB {
           resolve(db);
         }
         // throw error instead ? possible
-        request.onerror = () => reject(new Error(request.error.message));
+        request.onerror = () => reject(request.error);
         request.onblocked = () => this.onBlocked();
         request.onupgradeneeded = (e) => this._schema(e.oldVersion, request.result, (e.target as IDBRequest).transaction);
       } catch (err) {

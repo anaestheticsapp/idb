@@ -12,7 +12,7 @@ export class IDBDemo extends LitElement {
   @state() _index = '';
   @state() _result = '';
 
-  _connections: Set<IndexedDB> = new Set();
+  _connections: Map<IndexedDB, string> = new Map();
   _idb;
   _indexList = {
     store1: [],
@@ -20,20 +20,40 @@ export class IDBDemo extends LitElement {
     store3: [],
   };
 
+  _onVersionChange() {
+
+  }
+
   async _openDb(version: number) {
     const db = new IndexedDB('test-db', version, SCHEMA);
-    db.onError = (err) => console.error(err.message);
-    db.onVersionChange = () => console.error('version change');
-    db.onBlocked = () => console.error('blocked');
+    db.onError = (err) => {
+      console.error(err.name, err.message);
+      this._connections.set(db, err.message);
+      this.requestUpdate();
+    };
+    db.onVersionChange = () => {
+      this._connections.set(db, `version change`);
+      this.requestUpdate();
+    }
+    db.onBlocked = () => {
+      console.error('blocked', this._connections.entries());
+      this._connections.set(db, `blocked`);
+      this.requestUpdate();
+    }
 
-    this._connections.add(db);
+    this._connections.set(db, 'opening');
+    this.requestUpdate();
+
     await db.open();
+    this._connections.set(db, '');
+    this.requestUpdate();
+
     this._idb = db.proxy();
     return this._viewStores();
   }
   _clearState(conn: IndexedDB) {
     this._connections.delete(conn);
-    const [db] = [...this._connections];
+    const [db] = [...this._connections.keys()];
     this._idb = db ? db.proxy() : undefined;
     this._stores = [];
     this._store = 'store1';
@@ -42,15 +62,15 @@ export class IDBDemo extends LitElement {
   _closeDb(e: Event) {
     const btn = e.target as HTMLButtonElement;
     const index = btn.dataset.conn;
-    const connections = [...this._connections];
-    const conn = connections[index]
+    const connections = [...this._connections.keys()];
+    const conn = connections[index];
     conn.close();
     return this._clearState(conn);
   }
   _deleteDb(e: Event) {
     const btn = e.target as HTMLButtonElement;
     const index = btn.dataset.conn;
-    const connections = [...this._connections];
+    const connections = [...this._connections.keys()];
     const conn = connections[index]
     conn.delete();
     return this._clearState(conn);
@@ -138,20 +158,8 @@ export class IDBDemo extends LitElement {
     this._viewStores();
   }
 
-  renderConnections() {
-    return [...this._connections].map((db: IndexedDB, i) => {
-      if (db.name === undefined) return;
-      return html`<div>
-        <span>Database ${db.name} version ${db.version}</span>
-        <button type="button" data-conn="${i}" @click=${this._closeDb}>Close</button>
-        <button type="button" data-conn="${i}" @click=${this._deleteDb}>Delete</button>
-      </div>`;
-    });
-  }
   renderStore() {
     const store = this._stores.find((store) => store.key === this._store);
-    console.log(store);
-
     if (!store) return;
     return html`
       <h1>${this._store}</h1>
@@ -175,15 +183,33 @@ export class IDBDemo extends LitElement {
         return;
     }
   }
+
+  renderConnections() {
+    return [...this._connections.entries()].map(([db, message], i) => {
+      return html`<div>
+        <span>Database ${db.name} version ${db.version || db._version}</span>
+        <button type="button" data-conn="${i}" @click=${this._closeDb}>Close</button>
+        <button type="button" data-conn="${i}" @click=${this._deleteDb}>Delete</button>
+        <span>${message}</span>
+      </div>`;
+    });
+  }
+  renderformConnection() {
+    return html`
+      <fieldset @click="${this._onClick}">
+        <legend>Connection</legend>
+        <button type="button" id="open-v1">Open Version 1</button>
+        <button type="button" id="open-v2">Open Version 2</button>
+        ${this.renderConnections()}
+      </fieldset>
+    `;
+  }
+
   render() {
     return html`
       <slot></slot>
       <form name="idb" @submit="${this._onSubmit}">
-        <fieldset @click="${this._onClick}">
-          <legend>Connection</legend>
-          <button type="button" id="open-v1">Open Version 1</button>
-          <button type="button" id="open-v2">Open Version 2</button>
-        </fieldset>
+        ${this.renderformConnection()}
         <fieldset @click="${this._onSelectPath}">
           <legend>Select</legend>
             <span>
@@ -217,7 +243,6 @@ export class IDBDemo extends LitElement {
           <div>${JSON.stringify(this._result)}</div>
         </fieldset>
       </form>
-      ${this.renderConnections()}
       ${this.renderStore()}
     `;
   }
@@ -229,6 +254,9 @@ export class IDBDemo extends LitElement {
       display: flex;
       gap: var(--space-s);
       align-items: center;
+    }
+    fieldset div {
+      padding: var(--space-xxs);
     }
   `;
 }

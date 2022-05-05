@@ -1,5 +1,6 @@
 import rimraf from 'rimraf';
 import nodeResolve from '@rollup/plugin-node-resolve';
+import markdownPlugin from './lib/markdown-plugin.js';
 import typescript from '@rollup/plugin-typescript';
 import copyPlugin from './lib/copy-plugin.js';
 
@@ -35,7 +36,7 @@ function test(name = 'main') {
     },
     plugins: [
       nodeResolve(),
-      copyPlugin([{ from: './test/', to: './dist/' }]),
+      markdownPlugin(),
       typescript(),
       serve({
         contentBase: 'dist',
