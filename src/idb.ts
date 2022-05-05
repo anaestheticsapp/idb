@@ -24,6 +24,7 @@ type Schema = (oldVersion: number, db: IDBDatabase, tx: IDBTransaction) => void;
 type Beacon = (action: string, opts?: unknown) => void;
 
 interface TransactionOptions {
+  db: IDBDatabase;
   storeName: string;
   indexName?: string;
 }
@@ -115,14 +116,12 @@ export default class IndexedDB {
     return;
   }
 
-  private async _promisifyIDBTransaction(method: Method, options: TransactionOptions): Promise<any> {
-    const { storeName, indexName } = options;
-
-    const db = await this.open();
+  private _promisifyIDBTransaction(method: Method, options: TransactionOptions): any {
+    const { db, storeName, indexName } = options;
 
     const tx = db.transaction(storeName, READONLY.has(method) ? 'readonly' : 'readwrite');
     const store = tx.objectStore(storeName);
-    const index = indexName ? store.index(indexName) : null;
+    const index = indexName ? store.index(indexName) : undefined;
     return {
       target: index || store,
       done: new Promise((resolve, reject) => {
@@ -160,7 +159,8 @@ export default class IndexedDB {
       try {
         if (Array.isArray(values) === false) throw new Error('Values must be an array.');
 
-        const { target, done }  = await this._promisifyIDBTransaction('add', { storeName });
+        const db = await this.open();
+        const { target, done } = this._promisifyIDBTransaction('add', { db, storeName });
 
         const { keyPath, autoIncrement } = target;
 
@@ -192,7 +192,9 @@ export default class IndexedDB {
   set(value: any, storeName: string) {
     return new Promise(async (resolve, reject) => {
       try {
-        const { target, done }  = await this._promisifyIDBTransaction('set', { storeName });
+        const db = await this.open();
+
+        const { target, done } = this._promisifyIDBTransaction('set', { db, storeName });
 
         const { keyPath } = target;
         const key = value[keyPath as string];
@@ -227,7 +229,9 @@ export default class IndexedDB {
       try {
         let result = null;
 
-        const { target, done }  = await this._promisifyIDBTransaction('get', { storeName, indexName });
+        const db = await this.open();
+
+        const { target, done } = this._promisifyIDBTransaction('get', { db, storeName, indexName });
 
         const query = target.openCursor(IDBKeyRange.only(key));
         let cursor: any = true;
@@ -249,7 +253,9 @@ export default class IndexedDB {
   getAll(storeName: string, indexName = null, key = null, limit = null) {
     return new Promise(async (resolve, reject) => {
       try {
-        const { target, done }  = await this._promisifyIDBTransaction('getAll', { storeName, indexName });
+        const db = await this.open();
+
+        const { target, done } = this._promisifyIDBTransaction('getAll', { db, storeName, indexName });
 
         const query = target.getAll(key, limit);
         const result = await this._promisifyIDBRequest(query);
@@ -266,7 +272,10 @@ export default class IndexedDB {
     return new Promise(async (resolve, reject) => {
       try {
         let result = [];
-        const { target, done }  = await this._promisifyIDBTransaction('getBound', { storeName, indexName });
+
+        const db = await this.open();
+
+        const { target, done } = this._promisifyIDBTransaction('getBound', { db, storeName, indexName });
 
         const keyRange = lower && upper
           ? IDBKeyRange.bound(lower, upper)
@@ -296,7 +305,10 @@ export default class IndexedDB {
     return new Promise(async (resolve, reject) => {
       try {
         let result = null;
-        const { target, done }  = await this._promisifyIDBTransaction('getLastEntry', { storeName, indexName });
+
+        const db = await this.open();
+
+        const { target, done } = this._promisifyIDBTransaction('getLastEntry', { db, storeName, indexName });
 
         const query = target.openCursor(null, direction);
 
@@ -320,7 +332,9 @@ export default class IndexedDB {
   delete(storeName: string, key = null) {
     return new Promise(async (resolve, reject) => {
       try {
-        const { target, done }  = await this._promisifyIDBTransaction('delete', { storeName });
+        const db = await this.open();
+
+        const { target, done } = this._promisifyIDBTransaction('delete', { db, storeName });
 
         const query = key ? target.delete(key) : target.clear();
         await this._promisifyIDBRequest(query);
@@ -337,7 +351,9 @@ export default class IndexedDB {
   count(storeName: string, indexName = null, lower = null, upper = null) {
     return new Promise(async (resolve, reject) => {
       try {
-        const { target, done }  = await this._promisifyIDBTransaction('count', { storeName, indexName });
+        const db = await this.open();
+
+        const { target, done } = this._promisifyIDBTransaction('count', { db, storeName, indexName });
 
         const keyRange = lower && upper
           ? IDBKeyRange.bound(lower, upper)

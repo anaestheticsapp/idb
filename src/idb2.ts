@@ -133,12 +133,13 @@ export class IndexedDB {
     const db = await this.open();
     const tx = db.transaction(storeName, READONLY.has(prop) ? 'readonly' : 'readwrite');
     const store = tx.objectStore(storeName);
-    const index = indexName ? store.index(indexName) : null;
+    const index = indexName ? store.index(indexName) : undefined;
     return {
       store,
       index,
       done: new Promise((resolve, reject) => {
-        tx.oncomplete = () => resolve('done');
+        tx.oncomplete = () => resolve;
+        tx.onabort = () => reject;
         tx.onerror = (e) => {
           const request = e.target as IDBRequest | IDBTransaction;
           reject(request.error.message);
