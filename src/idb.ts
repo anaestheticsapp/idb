@@ -116,6 +116,9 @@ export default class IndexedDB {
     return;
   }
 
+  /**
+   * Safari bug don't use async here
+   */
   private _promisifyIDBTransaction(method: Method, options: TransactionOptions): any {
     const { db, storeName, indexName } = options;
 
@@ -210,6 +213,7 @@ export default class IndexedDB {
           cursor = await this._promisifyIDBCursorRequest(query);
           if (cursor) {
             cursor.update(Object.assign({}, cursor.value, value));
+            break;
           } else {
             target.put(value);
           }
