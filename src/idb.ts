@@ -201,20 +201,17 @@ export default class IndexedDB {
           throw new Error(`key '${keyPath}' is required but missing.`);
         }
 
-        let found = false;
+        const query = target.openCursor(IDBKeyRange.only(key));
 
-        const cursorRequest = target.openCursor(IDBKeyRange.only(key));
-        cursorRequest.onsuccess = () => {
-          const cursor = cursorRequest.result;
-          if (!!cursor === false) {
-            if (found === false) tx.put(value);
-            return;
+        let cursor: any = true;
+        while (!!cursor) {
+          cursor = await this._promisifyIDBCursorRequest(query);
+          if (cursor) {
+            cursor.update(Object.assign({}, cursor.value, value));
+          } else {
+            target.put(value);
           }
-          found = true;
-          cursor.update(Object.assign({}, cursor.value, value));
-          cursor.continue();
-        };
-        cursorRequest.onerror = () => reject(cursorRequest.error);
+        }
 
         await done;
         resolve('success');
