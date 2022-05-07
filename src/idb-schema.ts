@@ -25,7 +25,7 @@ function index(tx: IDBTransaction, storeName: string, index: string) {
  * @param db IndexedDb
  * @param tx required when store already exists (ie adding an index to an existing store)
  */
-export const SCHEMA = (oldVersion: number, db: IDBDatabase, tx: IDBTransaction): void => {
+export const schema = (oldVersion: number, db: IDBDatabase, tx: IDBTransaction): void => {
   if (oldVersion > 0) {
     console.log(`idb/upgrading`, { oldVersion });
   }
@@ -39,6 +39,45 @@ export const SCHEMA = (oldVersion: number, db: IDBDatabase, tx: IDBTransaction):
     }
   }
 };
+
+const OBJECT = 'object';
+const ARRAY = 'Array';
+const STRING = 'string';
+const NUMBER = 'number';
+const DATE = 'Date';
+
+const toObject = (props: {}, required: string[] = undefined) => ({
+  type: OBJECT,
+  keys: Object.keys(props),
+  props,
+  required,
+});
+const toArray = (items: any) => ({
+  type: ARRAY,
+  items,
+});
+const toString = (_enum: any[] = undefined) => ({ type: STRING, enum: _enum });
+const toDate = () => ({ type: DATE });
+const toNumber = () => ({ type: NUMBER });
+
+export const types = {
+  store1: toObject({
+    id: toString(),
+    value: toString(),
+  }),
+  store2: toObject({
+    id: toString(),
+    date: toDate(),
+    role: toString(),
+  }),
+  store3: toObject({
+    id: toString(),
+    value: toNumber(),
+    list: toArray(toString(['house', 'floor', 'roof'])),
+  }),
+}
+console.log(types);
+
 
 export async function testProxy(db: IndexedDB) {
   const idb = db.proxy();

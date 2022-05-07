@@ -137,8 +137,8 @@ export default class IndexedDB {
     }
   }
   private _promisifyIDBCursorRequest(req: IDBRequest): Promise<any> {
-    return new Promise(async (resolve, reject) => {
-      req.onsuccess = async () => {
+    return new Promise((resolve, reject) => {
+      req.onsuccess = () => {
         let cursor = req.result;
         if (!!cursor === false) return resolve(undefined);
         else resolve(cursor);
@@ -213,7 +213,7 @@ export default class IndexedDB {
           cursor = await this._promisifyIDBCursorRequest(query);
           if (cursor) {
             cursor.update(Object.assign({}, cursor.value, value));
-            break;
+            break; // as no cursor.continue
           } else {
             target.put(value);
           }
@@ -322,6 +322,7 @@ export default class IndexedDB {
           if (cursor) {
             result = cursor.value;
             cursor.continue();
+            break;
           }
         }
         await done;

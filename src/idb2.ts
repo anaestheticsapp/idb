@@ -23,6 +23,8 @@ export class IndexedDB {
   private _version: number;
   private _schema: Schema;
 
+  private _types: {};
+
   private _inProgress = null;
   private _db = null;
 
@@ -42,10 +44,11 @@ export class IndexedDB {
   /**
    * v3
    */
-  constructor(database: string, version: number, schema: Schema) {
+  constructor(database: string, version: number, schema: Schema, types: {} = undefined) {
     this._database = database;
     this._version = version;
     this._schema = schema;
+    this._types = types;
   }
 
   private _connect(): Promise<IDBDatabase | null> {
@@ -128,9 +131,11 @@ export class IndexedDB {
     }
   }
 
-  private async _promisifyIDBTransaction(prop: string, request: string) {
+  /**
+   * Safari bug don't use async here https://bugs.webkit.org/show_bug.cgi?id=222746
+   */
+  private _promisifyIDBTransaction(db: IDBDatabase, prop: string, request: string) {
     const [storeName, indexName] = request.split('/').filter(Boolean);
-    const db = await this.open();
     const tx = db.transaction(storeName, READONLY.has(prop) ? 'readonly' : 'readwrite');
     const store = tx.objectStore(storeName);
     const index = indexName ? store.index(indexName) : undefined;
@@ -138,18 +143,26 @@ export class IndexedDB {
       store,
       index,
       done: new Promise((resolve, reject) => {
-        tx.oncomplete = () => resolve;
-        tx.onabort = () => reject;
+        tx.oncomplete = resolve;
+        /**
+         * Bad requests (add same key twice, put same index key when the key has a uniqueness constraint).
+         * Explicit abort() call.
+         * Uncaught exception in the request's success/error handler.
+         * I/O error (failure to write to disk).
+         * Quota exceeded.
+         */
+        tx.onabort = reject;
+
         tx.onerror = (e) => {
           const request = e.target as IDBRequest | IDBTransaction;
-          reject(request.error.message);
+          reject(request.error);
         };
       }),
     }
   }
   private _promisifyIDBCursorRequest(req: IDBRequest): Promise<any> {
-    return new Promise(async (resolve, reject) => {
-      req.onsuccess = async () => {
+    return new Promise((resolve, reject) => {
+      req.onsuccess = () => {
         let cursor = req.result;
         if (!!cursor === false) return resolve(undefined);
         else resolve(cursor);
@@ -164,22 +177,32 @@ export class IndexedDB {
     });
   }
   private _getKeyRange(prop: string, args: any[]): IDBKeyRange | null {
-    const [lower, upper] = args;
-    if (prop === 'delete' || prop === 'get' || prop === 'count') {
-      if ((lower && upper)) {
+    if (prop === 'get' || prop === 'getAll' || prop === 'count' || prop === 'delete') {
+      const [key] = args;
+      const [lower, upper] = Array.isArray(key) ? key : [];
+      if (lower && upper) {
         return IDBKeyRange.bound(lower, upper);
-      } else if (lower) {
-        return IDBKeyRange.only(lower);
+      } else if (key) {
+        return IDBKeyRange.only(key);
+      } else {
+        return undefined;
       }
     }
-    return null;
+
+    return undefined;
   }
   private _getDirection(args: any[]): IDBCursorDirection {
     const [key, dir] = args;
     if (key === null && dir) {
-      return dir as IDBCursorDirection;
+      if (dir === 'last') {
+        return 'next';
+      } else if (dir === 'first') {
+        return 'prev';
+      } else {
+        throw new Error('Unknown direction');
+      }
     } else {
-      return 'prev';
+      return 'next';
     }
   }
   private _methods(request: string, prop: string, args: any[]) {
@@ -187,15 +210,17 @@ export class IndexedDB {
       try {
         let result = [];
 
-        const { store, index, done }  = await this._promisifyIDBTransaction(prop, request);
+        const db = await this.open();
+
+        const { store, index, done } = this._promisifyIDBTransaction(db, prop, request);
 
         const keyRange = this._getKeyRange(prop, args);
-        const direction = this._getDirection(args);
 
         this._validateRequest(prop, args, store);
 
         switch (prop) {
           case METHOD.GET: {
+            const direction = this._getDirection(args);
             const query = (index || store).openCursor(keyRange, direction);
             let cursor: any = true;
             while (!!cursor) {
@@ -219,17 +244,11 @@ export class IndexedDB {
             break;
           }
           case METHOD.ADD: {
-            for (let value of args[0]) {
+            const [values] = args;
+            for (let value of values) {
               // store.add throws error when item already exists, store.put overwrites item
               store.put(value);
             }
-            break;
-          }
-          case METHOD.DELETE: {
-            const query = keyRange
-              ? store.delete(keyRange)
-              : store.clear();
-            await this._promisifyIDBRequest(query);
             break;
           }
           case METHOD.SET: {
@@ -251,6 +270,13 @@ export class IndexedDB {
                 store.put(value);
               }
             }
+            break;
+          }
+          case METHOD.DELETE: {
+            const query = keyRange
+              ? store.delete(keyRange)
+              : store.clear();
+            await this._promisifyIDBRequest(query);
             break;
           }
           default:

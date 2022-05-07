@@ -1,4 +1,4 @@
-import { SCHEMA } from 'idb-schema';
+import { schema, types } from 'idb-schema';
 import { IndexedDB } from 'idb2';
 import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
@@ -7,86 +7,98 @@ const category = 'idb-demo';
 
 @customElement(category)
 export class IDBDemo extends LitElement {
-  @state() _stores = [];
-  @state() _store = 'store1';
-  @state() _index = '';
-  @state() _result = '';
+  @state() _availableStores = [];
+  @state() _selectedStore = 'store1';
+  @state() _selectedIndex = '';
+  @state() _result = [];
 
   _connections: Map<IndexedDB, string> = new Map();
-  _idb;
-  _indexList = {
-    store1: [],
-    store2: ['date', 'role'],
-    store3: [],
-  };
 
-  _onVersionChange() {
+  _idb: any;
+  _indexList = {};
 
+  _getRandomWord = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
+
+  _setConnection(db: IndexedDB, msg: string) {
+    this._connections.set(db, msg);
+    this.requestUpdate();
+  }
+  _getConnection(e: Event) {
+    const btn = e.target as HTMLButtonElement;
+    const index = btn.dataset.conn;
+    const connections = [...this._connections.keys()];
+    return connections[index];
   }
 
   async _openDb(version: number) {
-    const db = new IndexedDB('test-db', version, SCHEMA);
-    db.onError = (err) => {
+    const idb = new IndexedDB('test-db', version, schema, types);
+    idb.onError = (err) => {
       console.error(err.name, err.message);
-      this._connections.set(db, err.message);
-      this.requestUpdate();
+      this._setConnection(idb, err.message);
     };
-    db.onVersionChange = () => {
-      this._connections.set(db, `version change`);
-      this.requestUpdate();
+    idb.onVersionChange = () => this._setConnection(idb, 'version change');
+    idb.onBlocked = () => this._setConnection(idb, 'blocked');
+
+    this._setConnection(idb, 'opening');
+    const db = await idb.open();
+    this._setConnection(idb, `connected to ${db.name} ${db.version}`);
+
+    this._idb = idb.proxy();
+
+    const storeNames = [...db.objectStoreNames];
+    const indexList = {};
+
+    const transaction = db.transaction(storeNames, 'readonly');
+    for (const store of storeNames) {
+      indexList[store] = ['none', ...transaction.objectStore(store).indexNames];
     }
-    db.onBlocked = () => {
-      console.error('blocked', this._connections.entries());
-      this._connections.set(db, `blocked`);
-      this.requestUpdate();
-    }
 
-    this._connections.set(db, 'opening');
-    this.requestUpdate();
-
-    await db.open();
-    this._connections.set(db, '');
-    this.requestUpdate();
-
-    this._idb = db.proxy();
-    return this._viewStores();
+    this._selectedStore = storeNames[0];
+    this._availableStores = storeNames;
+    this._indexList = indexList;
   }
+
   _clearState(conn: IndexedDB) {
     this._connections.delete(conn);
     const [db] = [...this._connections.keys()];
     this._idb = db ? db.proxy() : undefined;
-    this._stores = [];
-    this._store = 'store1';
-    this._index = '';
+    this._availableStores = [];
+    this._selectedStore = 'store1';
+    this._selectedIndex = '';
   }
   _closeDb(e: Event) {
-    const btn = e.target as HTMLButtonElement;
-    const index = btn.dataset.conn;
-    const connections = [...this._connections.keys()];
-    const conn = connections[index];
+    const conn = this._getConnection(e);
     conn.close();
     return this._clearState(conn);
   }
   _deleteDb(e: Event) {
-    const btn = e.target as HTMLButtonElement;
-    const index = btn.dataset.conn;
-    const connections = [...this._connections.keys()];
-    const conn = connections[index]
+    const conn = this._getConnection(e);
     conn.delete();
     return this._clearState(conn);
   }
-  async _viewStores() {
-    this._store = this._store || 'store1';
-    const [store1, store2] = await Promise.all([
-      this._idb.store1.getAll(),
-      this._idb.store2.getAll(),
-    ]);
-    this._stores = [
-      { key: 'store1', value: store1 },
-      { key: 'store2', value: store2 },
-    ];
-  }
 
+  async _generateRandomValues() {
+    const store = this._selectedStore;
+    const roles = ['admin', 'user', 'test'];
+
+    const values = [];
+    for (let i = 0; i < 1000; i++) {
+      const id = crypto.randomUUID();
+
+      if (store === 'store1') {
+        const [value] = crypto.getRandomValues(new Uint32Array(10));
+        values.push({ id, value });
+      } else if (store === 'store2') {
+        const month = Math.floor(Math.random() * 12) - 1;
+        const day = Math.floor(Math.random() * 12);
+        values.push({ id, date: new Date(2022, month, day), role: this._getRandomWord(roles) });
+      } else {
+        throw Error('Unknown store');
+      }
+    }
+
+    await this._idb[store].add(values);
+  }
   async _onClick(e: Event) {
     const btn = e.target as HTMLButtonElement;
     switch (btn.id) {
@@ -94,94 +106,64 @@ export class IDBDemo extends LitElement {
         return this._openDb(1);
       case 'open-v2':
         return this._openDb(2);
-      case 'populate-store1':
-        await this._idb.store1.add([
-          { id: 'alphabet', value: 'entry1' },
-          { id: 'dog', value: 'entry2' },
-          { id: 'test', value: 'test-value' },
-          { id: 'deleteme', value: 'nothing' },
-        ]);
-        return this._viewStores();
-      case 'populate-store2':
-        await this._idb.store2.add([
-          { id: 'user1', date: '2022-01-01', role: 'admin' },
-          { id: 'user2', date: '2022-02-01', role: 'user' },
-          { id: 'user3', date: '2022-04-01', role: 'test' },
-          { id: 'user4', date: '2022-03-01', role: 'user' },
-          { id: 'user5', date: '2022-05-01', role: 'test' },
-          { id: 'user6', role: 'INACTIVE' },
-        ]);
-        return this._viewStores();
+      case 'generate-random':
+        return this._generateRandomValues();
     }
   }
   _onSelectPath(e: Event) {
     const el = e.target as HTMLButtonElement;
     if (el.name === 'store') {
-      this._store = el.textContent;
-      this._index = '';
+      this._selectedStore = el.textContent;
+      this._selectedIndex = '';
     } else if (el.name === 'index') {
-      this._index = el.textContent;
+      if (el.textContent === 'none') this._selectedIndex = '';
+      else this._selectedIndex = el.textContent;
     }
   }
   async _onSubmit(e: SubmitEvent) {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
     const method = (e.submitter as HTMLButtonElement).value;
+    const isReadOnly = method === 'get' || method === 'getAll' || method === 'count';
+    const isWrite = method === 'add' || method === 'set' || method === 'delete';
 
-    const store = this._store;
-    const index = this._index;
+    const store = this._selectedStore;
+    const index = this._selectedIndex;
 
     let arr = [];
-    let obj = { id: undefined };
+    let obj = {};
     for (const [key, value] of formData.entries()) {
-      if (value) {
+      if (!value) continue;
+      const isArg = key === 'arg1' || key === 'arg2';
+      if ((isReadOnly && isArg) || (isWrite && !isArg)) {
+        console.log(key, value);
         obj[key] = value;
         arr.push(value);
       }
     }
 
-    const args = method === 'add'
-      ? [[obj]]
-      : method === 'set'
-      ? [obj]
-      : method === 'delete' || method === 'get' || method === 'getAll'
-      ? arr
-      : [obj?.id];
+    console.log(arr, obj);
 
-    console.log(store, index, method, args);
-
-    if (index) {
-      this._result = await this._idb[store][index][method].apply(this, args);
+    let args;
+    if (method === 'add') {
+      args = [[obj]];
+    } else if (method === 'set') {
+      args = [obj];
     } else {
-      this._result = await this._idb[store][method].apply(this, args);
+      args = arr;
     }
-    this._viewStores();
+
+    console.log({ store, index, method, args });
+
+    this._result = index
+      ? await this._idb[store][index][method].apply(this, args)
+      : await this._idb[store][method].apply(this, args);
   }
 
-  renderStore() {
-    const store = this._stores.find((store) => store.key === this._store);
-    if (!store) return;
-    return html`
-      <h1>${this._store}</h1>
-      ${store.value.map((item) => html`<div>${JSON.stringify(item)}</div>`)}
-    `;
-  }
-  renderWriteStore() {
-    switch (this._store) {
-      case 'store1':
-        return html`
-          <input name="id" autocomplete="off" placeholder="id" type="text" />
-          <input name="value" autocomplete="off" placeholder="value" type="text" />
-        `;
-      case 'store2':
-        return html`
-          <input name="id" autocomplete="off" placeholder="id" type="text" />
-          <input name="date" autocomplete="off" placeholder="date" type="text" />
-          <input name="role" autocomplete="off" placeholder="role" type="text" />
-        `;
-      default:
-        return;
-    }
+  renderWriteInputFields() {
+    const store = this._selectedStore;
+    const props = types[store];
+    return props.keys.map((key: string) => html`<input name="${key}" autocomplete="off" placeholder="${key}" type="text" />`);
   }
 
   renderConnections() {
@@ -204,46 +186,56 @@ export class IDBDemo extends LitElement {
       </fieldset>
     `;
   }
+  renderAvailableStores() {
+    return html`
+      <fieldset @click="${this._onSelectPath}">
+        <legend>Select</legend>
+          ${this._availableStores.map((store) => html`<button name="store" type="button" id="${store}" ?disabled="${this._selectedStore === store}">${store}</button>`)}
+      </fieldset>
+    `;
+  }
+  renderResults() {
+    return this._result.map((item) => html`<div>${JSON.stringify(item)}</div>`);
+  }
 
   render() {
     return html`
       <slot></slot>
       <form name="idb" @submit="${this._onSubmit}">
         ${this.renderformConnection()}
-        <fieldset @click="${this._onSelectPath}">
-          <legend>Select</legend>
-            <span>
-              ${this._stores.map((store) => html`<button name="store" type="button" id="${store.key}" ?disabled="${this._store === store.key}">${store.key}</button>`)}
-            </span>
-            <span>
-              ${this._indexList[this._store].map(
-                (index) => html`<button name="index" type="button" id="${this._store}-${index}" ?disabled="${this._index === index}">${index}</button>`
-              )}
-            </span>
-        </fieldset>
-        <fieldset @click="${this._onClick}">
-          <legend>Populate Stores</legend>
-          <button type="button" id="populate-store1">store1</button>
-          <button type="button" id="populate-store2">store2</button>
-        </fieldset>
+        ${this.renderAvailableStores()}
         <fieldset>
           <legend>Write</legend>
-          ${this.renderWriteStore()}
-          <button type="submit" value="add" id="add">Add</button>
-          <button type="submit" value="set" id="set">Set</button>
-          <button type="submit" value="delete" id="delete">Delete</button>
+          <div>
+            ${this.renderWriteInputFields()}
+            <button type="submit" value="add" id="add">Add</button>
+            <button type="submit" value="set" id="set">Set</button>
+            <button type="submit" value="delete" id="delete">Delete</button>
+          </div>
+          <div>
+            <button type="button" id="generate-random" @click="${this._onClick}">Generate Random</button>
+          </div>
         </fieldset>
         <fieldset>
           <legend>Read</legend>
-          <input name="arg1" autocomplete="off" placeholder="arg1" type="text" />
-          <input name="arg2" autocomplete="off" placeholder="arg2" type="text" />
-          <button type="submit" value="get" id="get">get</button>
-          <button type="submit" value="getAll" id="getAll">getAll</button>
-          <button type="submit" value="count" id="count">count</button>
-          <div>${JSON.stringify(this._result)}</div>
+          <div @click="${this._onSelectPath}">
+            Index:
+            ${this._indexList[this._selectedStore]?.map(
+              (index: string) => html`<button name="index" type="button" id="${this._selectedStore}-${index}" ?disabled="${this._selectedIndex === index}">${index}</button>`
+            )}
+          </div>
+          <div>
+            <input name="arg1" autocomplete="off" placeholder="arg1" type="text" />
+            <input name="arg2" autocomplete="off" placeholder="arg2" type="text" />
+            <button type="submit" value="get" id="get">get</button>
+            <button type="submit" value="getAll" id="getAll">getAll</button>
+            <button type="submit" value="count" id="count">count</button>
+          </div>
+          <div>
+            ${Array.isArray(this._result) ? this.renderResults() : this._result}
+          </div>
         </fieldset>
       </form>
-      ${this.renderStore()}
     `;
   }
   static styles = css`
